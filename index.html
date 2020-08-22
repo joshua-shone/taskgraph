@@ -2,6 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
+    <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover'/>
     <title>TaskGraph</title>
     <script src="index.js" type="module"></script>
     <link rel="stylesheet" type="text/css" href="style.css" />
@@ -16,13 +17,17 @@
       </label>
       <button id="createTaskButton"></button>
     </div>
-    <svg id="arrows">
-      <defs>
-        <marker id="Triangle" viewBox="0 0 5 5" refX="3.8" refY="2.5" markerWidth="2" markerHeight="2" orient="auto">
-          <path d="M 0 0 L 5 2.5 L 0 5 z" class="link-arrow-triangle-path" />
-        </marker>
-      </defs>
-    </svg>
+
+    <div id="graph">
+      <svg id="arrows">
+        <defs>
+          <marker id="Triangle" viewBox="0 0 5 5" refX="1.8" refY="2.5" markerWidth="2" markerHeight="2" orient="auto">
+            <path d="M 0 0 L 5 2.5 L 0 5 z" class="link-arrow-triangle-path" />
+          </marker>
+        </defs>
+      </svg>
+    </div>
+
     <input id="newTask" type="text"></input>
   </body>
 </html>

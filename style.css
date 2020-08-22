@@ -4,20 +4,34 @@
     format("truetype");
 }
 
+html {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
+  height: 100%;
   margin: 0;
   padding: 0;
-  background: url("resources/Brown-Paper.jpg");
+  overflow: hidden;
+/*   background: url("resources/Brown-Paper.jpg"); */
   touch-action: none;
 }
 
+#graph {
+  width: 1px;
+  height: 1px;
+  outline: 1px solid red;
+}
+
 .task {
-  /* border: 1px solid black; */
   position: absolute;
   font-family: "PermanentMarker";
   font-size: 2em;
+  white-space: nowrap;
   line-height: 1em; /* ensure that the bounding box is not too high */
   cursor: pointer;
+  user-select: none;
 }
 
 .selected {
@@ -30,12 +44,14 @@ body {
   top: 0;
   height: 100vh;
   width: 100vw;
+  overflow: visible;
 }
 
 #arrows > path {
   stroke: black;
   stroke-width: 4px;
   marker-end: url(#Triangle);
+  transform: var(--pan-offset);
 }
 
 #newTask {

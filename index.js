@@ -1,6 +1,19 @@
 "use strict";
 
-const container = document.body;
+const container = document.getElementById('graph');
+
+let panX = 0;
+let panY = 0;
+let zoomValue = 1;
+function pan(delta) {
+  panX += delta.x;
+  panY += delta.y;
+  container.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomValue})`;
+}
+function zoom(delta) {
+  zoomValue *= delta;
+  container.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomValue})`;
+}
 
 function removeFromArray(array, element) {
   array.splice(array.indexOf(element), 1);
@@ -169,8 +182,8 @@ function deleteSelected() {
 // updates the visual representation of path
 // if dest if specified, use instead of path.to
 function updatePath(path, dest) {
-  const nodeABox = path.from.getBoundingClientRect();
-  const nodeBBox = dest ? null : path.to.getBoundingClientRect();
+  const nodeABox = getOffsetBox(path.from);
+  const nodeBBox = dest ? null : getOffsetBox(path.to);
 
   const centerA = getBoxCenter(nodeABox);
   const centerB = dest ? dest : getBoxCenter(nodeBBox);
@@ -235,81 +248,171 @@ document.addEventListener("DOMContentLoaded", (event) => {
 
   container.onclick = resetSelected;
 
-  container.onpointerdown = event => {
+  document.body.onwheel = event => {
+    zoom(event.deltaY < 0 ? 1.1 : 0.9);
+  }
+
+  const panzoomPointers = new Map();
+  let panzoomInitialState = null;
+  let activeGraphManipulations = 0;
+
+  document.body.onpointerdown = event => {
     event.preventDefault();
     let moved = false;
-    const task = event.target;
-    if (!task.classList.contains("task")) return;
-    if (event.shiftKey || document.querySelector("#linkModeCheckbox input").checked) {
-      const pointerId = event.pointerId;
-      // Initiate link creation
-      const path = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "path"
-      );
-      path.from = task;
-      arrows.appendChild(path);
-      function onPointerMove(event) {
-        if (event.pointerId !== pointerId) return;
-        if (!moved) {
-          container.setPointerCapture(pointerId);
-          moved = true;
+
+    if (panzoomPointers.size === 0 && event.target.classList.contains("task")) {
+      const task = event.target;
+      if (event.shiftKey || document.querySelector("#linkModeCheckbox input").checked) {
+        const pointerId = event.pointerId;
+        // Initiate link creation
+        const path = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "path"
+        );
+        path.from = task;
+        arrows.appendChild(path);
+        function onPointerMove(event) {
+          if (event.pointerId !== pointerId) return;
+          if (!moved) {
+            container.setPointerCapture(pointerId);
+            moved = true;
+            activeGraphManipulations++;
+          }
+          updatePath(path, { x: event.offsetX, y: event.offsetY });
+        };
+        function onPointerEnd(event) {
+          if (event.pointerId !== pointerId) return;
+          if (moved) {
+            container.releasePointerCapture(pointerId);
+            activeGraphManipulations--;
+          }
+          container.removeEventListener("pointermove", onPointerMove);
+          container.removeEventListener("pointerup", onPointerEnd);
+          container.removeEventListener("pointercancel", onPointerEnd);
+          const target = document.elementFromPoint(event.pageX, event.pageY);
+          // TODO Prevent a link to itself
+          // TODO Prevent a link to a dependency
+          // TODO Prevent a link to a target from which it's a dependency
+          if (!target || !target.classList.contains("task")) {
+            arrows.removeChild(path);
+            return;
+          }
+          path.to = target;
+          task.from.push(path);
+          target.to.push(path);
+          updatePath(path);
+          saveToLocalStorage();
+        };
+        container.addEventListener("pointermove", onPointerMove);
+        container.addEventListener("pointerup", onPointerEnd);
+        container.addEventListener("pointercancel", onPointerEnd);
+      } else {
+        // Initiate Drag
+        const pointerId = event.pointerId;
+        const offsetX = event.offsetX;
+        const offsetY = event.offsetY;
+        container.setPointerCapture(pointerId);
+        activeGraphManipulations++;
+        function onPointerMove(event) {
+          if (event.pointerId !== pointerId) return;
+          task.style.left = event.offsetX - offsetX + "px";
+          task.style.top = event.offsetY - offsetY + "px";
+          for (const path of [...task.from, ...task.to]) updatePath(path);
         }
-        updatePath(path, { x: event.clientX, y: event.clientY });
-      };
-      function onPointerEnd(event) {
-        if (event.pointerId !== pointerId) return;
-        if (moved) container.releasePointerCapture(pointerId);
-        container.removeEventListener("pointermove", onPointerMove);
-        container.removeEventListener("pointerup", onPointerEnd);
-        container.removeEventListener("pointercancel", onPointerEnd);
-        const target = document.elementFromPoint(event.pageX, event.pageY);
-        // TODO Prevent a link to itself
-        // TODO Prevent a link to a dependency
-        // TODO Prevent a link to a target from which it's a dependency
-        if (!target || !target.classList.contains("task")) {
-          arrows.removeChild(path);
-          return;
-        }
-        path.to = target;
-        task.from.push(path);
-        target.to.push(path);
-        updatePath(path);
-        saveToLocalStorage();
-      };
-      container.addEventListener("pointermove", onPointerMove);
-      container.addEventListener("pointerup", onPointerEnd);
-      container.addEventListener("pointercancel", onPointerEnd);
-    } else {
-      // Initiate Drag
-      const pointerId = event.pointerId;
-      const offsetX = event.offsetX;
-      const offsetY = event.offsetY;
-      function onPointerMove(event) {
-        if (event.pointerId !== pointerId) return;
-        if (!moved) {
-          container.setPointerCapture(pointerId);
-          moved = true;
-        }
-        task.style.left = event.clientX - offsetX + "px";
-        task.style.top = event.clientY - offsetY + "px";
-        for (const path of [...task.from, ...task.to]) updatePath(path);
-      }
-      function onPointerEnd(event) {
-        if (event.pointerId !== pointerId) return;
-        container.removeEventListener("pointermove", onPointerMove);
-        container.removeEventListener("pointerup", onPointerEnd);
-        container.removeEventListener("pointercancel", onPointerEnd);
-        if (moved)
+        function onPointerEnd(event) {
+          if (event.pointerId !== pointerId) return;
+          activeGraphManipulations--;
+          container.removeEventListener("pointermove", onPointerMove);
+          container.removeEventListener("pointerup", onPointerEnd);
+          container.removeEventListener("pointercancel", onPointerEnd);
           container.releasePointerCapture(pointerId);
+        }
+        container.addEventListener("pointermove", onPointerMove)
+        container.addEventListener("pointerup", onPointerEnd);
+        container.addEventListener("pointercancel", onPointerEnd);
       }
-      container.addEventListener("pointermove", onPointerMove)
-      container.addEventListener("pointerup", onPointerEnd);
-      container.addEventListener("pointercancel", onPointerEnd);
+    } else if (activeGraphManipulations === 0) {
+      if (panzoomPointers.size >= 2) return;
+      panzoomInitialState = {
+        pan: {x: panX, y: panY},
+        zoom: zoomValue,
+      }
+      const pointerId = event.pointerId;
+      container.setPointerCapture(pointerId);
+      function onpointermove(event) {
+        if (event.pointerId !== pointerId) return;
+        if (!panzoomPointers.has(pointerId)) {
+          panzoomPointers.set(pointerId, {
+            pageInitial: {x: event.pageX, y: event.pageY},
+            page: {x: event.pageX, y: event.pageY},
+            graph: {x: event.offsetX, y: event.offsetY},
+          });
+        } else {
+          panzoomPointers.get(pointerId).page = {x: event.pageX, y: event.pageY};
+          const pointer = panzoomPointers.get(pointerId);
+          if (panzoomPointers.size === 1) {
+            panX = panzoomInitialState.pan.x + (event.pageX - pointer.pageInitial.x);
+            panY = panzoomInitialState.pan.y + (event.pageY - pointer.pageInitial.y);
+            container.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomValue})`;
+          } else if (panzoomPointers.size === 2) {
+            const otherPointer = panzoomPointers.get([...panzoomPointers.keys()].find(key => key !== pointerId));
+
+            const panA = {
+              x: panzoomInitialState.pan.x + (event.pageX - pointer.pageInitial.x),
+              y: panzoomInitialState.pan.y + (event.pageY - pointer.pageInitial.y),
+            };
+            const panB = {
+              x: panzoomInitialState.pan.x + (otherPointer.page.x - otherPointer.pageInitial.x),
+              y: panzoomInitialState.pan.y + (otherPointer.page.y - otherPointer.pageInitial.y),
+            };
+            panX = panA.x + ((panB.x - panA.x) / 2);
+            panY = panA.y + ((panB.y - panA.y) / 2);
+
+            const initialPointerSeparation = distance(otherPointer.pageInitial, panzoomPointers.get(pointerId).pageInitial);
+            const currentPointerSeparation = distance(otherPointer.page, {x: event.pageX, y: event.pageY});
+            zoomValue = panzoomInitialState.zoom * currentPointerSeparation / initialPointerSeparation;
+
+            container.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomValue})`;
+          }
+        }
+      }
+      container.addEventListener('pointermove', onpointermove);
+      function onpointerend(event) {
+        if (event.pointerId !== pointerId) return;
+        panzoomPointers.delete(pointerId);
+        container.releasePointerCapture(pointerId);
+        container.removeEventListener('pointermove', onpointermove);
+        container.removeEventListener('pointerup', onpointerend);
+        container.removeEventListener('pointercancel', onpointerend);
+      }
+      container.addEventListener('pointerup', onpointerend);
+      container.addEventListener('pointercancel', onpointerend);
     }
   };
   loadFromLocalStorage();
 });
+
+function offsetBox(box, offset) {
+  return {
+    left:   box.left   + offset.x,
+    top:    box.top    + offset.y,
+    right:  box.right  + offset.x,
+    bottom: box.bottom + offset.y,
+    width:  box.width,
+    height: box.height,
+  }
+}
+
+function getOffsetBox(element) {
+  return {
+    left: element.offsetLeft,
+    top: element.offsetTop,
+    right: element.offsetLeft + element.offsetWidth,
+    bottom: element.offsetTop + element.offsetHeight,
+    width: element.offsetWidth,
+    height: element.offsetHeight,
+  }
+}
 
 function getBoxCenter(box) {
   return {
@@ -382,4 +485,10 @@ function intersectLines(p1, p2, p3, p4) {
   let y = p1.y + ua * (p2.y - p1.y)
 
   return {x, y}
+}
+
+function distance(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.sqrt((dx * dx) + (dy * dy));
 }
