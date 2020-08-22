@@ -2,17 +2,12 @@
 
 const container = document.getElementById('graph');
 
-let panX = 0;
-let panY = 0;
-let zoomValue = 1;
-function pan(delta) {
-  panX += delta.x;
-  panY += delta.y;
-  container.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomValue})`;
+const panzoom = {
+  pan: {x: 0, y: 0},
+  zoom: 1,
 }
-function zoom(delta) {
-  zoomValue *= delta;
-  container.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomValue})`;
+function updatePanzoom() {
+  container.style.transform = `translate(${panzoom.pan.x}px, ${panzoom.pan.y}px) scale(${panzoom.zoom})`;
 }
 
 function removeFromArray(array, element) {
@@ -249,18 +244,89 @@ document.addEventListener("DOMContentLoaded", (event) => {
   container.onclick = resetSelected;
 
   document.body.onwheel = event => {
-    zoom(event.deltaY < 0 ? 1.1 : 0.9);
+    panzoom.zoom *= event.deltaY < 0 ? 1.1 : 0.9;
+    updatePanzoom();
   }
+
+  let activeGraphManipulations = 0;
 
   const panzoomPointers = new Map();
   let panzoomInitialState = null;
-  let activeGraphManipulations = 0;
+  function startPanzoom(event) {
+    event.preventDefault();
+    container.onpointerdown = onPanzoomPointerdown;
+    container.onpointermove = onPanzoomPointermove;
+    container.onpointerup = container.onpointercancel = event => {
+      if (!panzoomPointers.has(event.pointerId)) return;
+      panzoomPointers.delete(event.pointerId);
+      if (panzoomPointers.size === 0) {
+        container.onpointerdown = null;
+        container.onpointermove = null;
+        container.onpointerup = null;
+        container.onpointercancel = null;
+      }
+    }
+    onPanzoomPointerdown(event);
+  }
+  function onPanzoomPointerdown(event) {
+    if (panzoomPointers.size >= 2) return;
+
+    container.setPointerCapture(event.pointerId);
+
+    panzoomPointers.set(event.pointerId, {
+      pageInitial: {x: event.pageX, y: event.pageY},
+      page: {x: event.pageX, y: event.pageY},
+    });
+
+    panzoomInitialState = {
+      pan: {...panzoom.pan},
+      zoom: panzoom.zoom,
+    }
+  }
+  function onPanzoomPointermove(event) {
+    if (!panzoomPointers.has(event.pointerId)) return
+
+    const pointer = panzoomPointers.get(event.pointerId);
+    pointer.page = {x: event.pageX, y: event.pageY};
+
+    switch (panzoomPointers.size) {
+      case 1:
+        panzoom.pan = {
+          x: panzoomInitialState.pan.x + (event.pageX - pointer.pageInitial.x),
+          y: panzoomInitialState.pan.y + (event.pageY - pointer.pageInitial.y),
+        }
+        break;
+      case 2:
+        const [pointerA, pointerB] = panzoomPointers.values();
+
+        const panA = {
+          x: panzoomInitialState.pan.x + (pointerA.page.x - pointerA.pageInitial.x),
+          y: panzoomInitialState.pan.y + (pointerA.page.y - pointerA.pageInitial.y),
+        };
+        const panB = {
+          x: panzoomInitialState.pan.x + (pointerB.page.x - pointerB.pageInitial.x),
+          y: panzoomInitialState.pan.y + (pointerB.page.y - pointerB.pageInitial.y),
+        };
+        panzoom.pan = {
+          x: panA.x + ((panB.x - panA.x) / 2),
+          y: panA.y + ((panB.y - panA.y) / 2),
+        }
+
+        const initialPointerSeparation = distance(pointerA.pageInitial, pointerB.pageInitial);
+        const currentPointerSeparation = distance(pointerA.page, pointerB.page);
+        panzoom.zoom = panzoomInitialState.zoom * currentPointerSeparation / initialPointerSeparation;
+        break;
+    }
+    updatePanzoom();
+  }
 
   document.body.onpointerdown = event => {
-    event.preventDefault();
+    if (container.onpointermove) return;
+
     let moved = false;
 
     if (panzoomPointers.size === 0 && event.target.classList.contains("task")) {
+      event.preventDefault();
       const task = event.target;
       if (event.shiftKey || document.querySelector("#linkModeCheckbox input").checked) {
         const pointerId = event.pointerId;
@@ -313,80 +379,24 @@ document.addEventListener("DOMContentLoaded", (event) => {
         const offsetY = event.offsetY;
         container.setPointerCapture(pointerId);
         activeGraphManipulations++;
-        function onPointerMove(event) {
+        container.onpointermove = event => {
           if (event.pointerId !== pointerId) return;
           task.style.left = event.offsetX - offsetX + "px";
           task.style.top = event.offsetY - offsetY + "px";
           for (const path of [...task.from, ...task.to]) updatePath(path);
         }
-        function onPointerEnd(event) {
+        container.onpointerup = container.onpointercancel = event => {
           if (event.pointerId !== pointerId) return;
           activeGraphManipulations--;
-          container.removeEventListener("pointermove", onPointerMove);
-          container.removeEventListener("pointerup", onPointerEnd);
-          container.removeEventListener("pointercancel", onPointerEnd);
-          container.releasePointerCapture(pointerId);
-        }
-        container.addEventListener("pointermove", onPointerMove)
-        container.addEventListener("pointerup", onPointerEnd);
-        container.addEventListener("pointercancel", onPointerEnd);
-      }
-    } else if (activeGraphManipulations === 0) {
-      if (panzoomPointers.size >= 2) return;
-      panzoomInitialState = {
-        pan: {x: panX, y: panY},
-        zoom: zoomValue,
-      }
-      const pointerId = event.pointerId;
-      container.setPointerCapture(pointerId);
-      function onpointermove(event) {
-        if (event.pointerId !== pointerId) return;
-        if (!panzoomPointers.has(pointerId)) {
-          panzoomPointers.set(pointerId, {
-            pageInitial: {x: event.pageX, y: event.pageY},
-            page: {x: event.pageX, y: event.pageY},
-            graph: {x: event.offsetX, y: event.offsetY},
-          });
-        } else {
-          panzoomPointers.get(pointerId).page = {x: event.pageX, y: event.pageY};
-          const pointer = panzoomPointers.get(pointerId);
-          if (panzoomPointers.size === 1) {
-            panX = panzoomInitialState.pan.x + (event.pageX - pointer.pageInitial.x);
-            panY = panzoomInitialState.pan.y + (event.pageY - pointer.pageInitial.y);
-            container.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomValue})`;
-          } else if (panzoomPointers.size === 2) {
-            const otherPointer = panzoomPointers.get([...panzoomPointers.keys()].find(key => key !== pointerId));
-
-            const panA = {
-              x: panzoomInitialState.pan.x + (event.pageX - pointer.pageInitial.x),
-              y: panzoomInitialState.pan.y + (event.pageY - pointer.pageInitial.y),
-            };
-            const panB = {
-              x: panzoomInitialState.pan.x + (otherPointer.page.x - otherPointer.pageInitial.x),
-              y: panzoomInitialState.pan.y + (otherPointer.page.y - otherPointer.pageInitial.y),
-            };
-            panX = panA.x + ((panB.x - panA.x) / 2);
-            panY = panA.y + ((panB.y - panA.y) / 2);
-
-            const initialPointerSeparation = distance(otherPointer.pageInitial, panzoomPointers.get(pointerId).pageInitial);
-            const currentPointerSeparation = distance(otherPointer.page, {x: event.pageX, y: event.pageY});
-            zoomValue = panzoomInitialState.zoom * currentPointerSeparation / initialPointerSeparation;
-
-            container.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomValue})`;
+          if (activeGraphManipulations === 0) {
+            container.pointermove = null;
+            container.pointerup = null;
+            container.pointercancel = null;
           }
         }
       }
-      container.addEventListener('pointermove', onpointermove);
-      function onpointerend(event) {
-        if (event.pointerId !== pointerId) return;
-        panzoomPointers.delete(pointerId);
-        container.releasePointerCapture(pointerId);
-        container.removeEventListener('pointermove', onpointermove);
-        container.removeEventListener('pointerup', onpointerend);
-        container.removeEventListener('pointercancel', onpointerend);
-      }
-      container.addEventListener('pointerup', onpointerend);
-      container.addEventListener('pointercancel', onpointerend);
+    } else if (activeGraphManipulations === 0) {
+      startPanzoom(event);
     }
   };
   loadFromLocalStorage();
